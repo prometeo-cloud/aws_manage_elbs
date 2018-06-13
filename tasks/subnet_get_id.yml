@@ -1,0 +1,18 @@
+---
+- name: Get Subnet {{ item }} facts
+  include_role:
+    name: aws_manage_subnets
+    tasks_from: get_subnet_facts
+  vars:
+    subnet_tag: "{{ item }}"
+
+- name: Store subnet ID(s)
+  set_fact:
+    subnet_ids: "{{ subnet_ids + subnet_facts.subnets[0].id + ' ' }}"
+  when: aws_elb.type != "classic"
+
+- name: Store subnet ID(s)
+  set_fact:
+    subnet_ids: "{{ subnet_ids + subnet_facts.subnets[0].id + ',' }}"
+  when: aws_elb.type == "classic"
+...

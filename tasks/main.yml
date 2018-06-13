@@ -1,0 +1,15 @@
+---
+- name: Create AWS Elastic Load Balancers
+  include_tasks: create_elb.yml
+  with_items: "{{ aws_elbs }}"
+  loop_control:
+    loop_var: aws_elb
+  when: (arg_action is not defined) or (arg_action != 'delete')
+
+- name: Delete AWS Elastic Load Balancers
+  include_tasks: delete_elb.yml
+  with_items: "{{ aws_elbs }}"
+  loop_control:
+    loop_var: aws_elb
+  when: (arg_action is defined) and (arg_action == 'delete')
+...

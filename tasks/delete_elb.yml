@@ -1,0 +1,11 @@
+---
+- name: Get ELB {{ aws_elb.name }} facts
+  command: "aws elbv2 describe-load-balancers --names {{ aws_elb.name }}"
+  failed_when: False
+  changed_when: False
+  register: elb_facts
+
+- name: Delete ELB {{ aws_elb.name }}
+  command: "aws elbv2 delete-load-balancer --load-balancer-arn {{ (elb_facts.stdout | from_json ).LoadBalancers[0].LoadBalancerArn }}"
+  when: elb_facts.stdout != ""
+...

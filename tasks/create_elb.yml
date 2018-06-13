@@ -1,0 +1,67 @@
+---
+- name: Start with empty parameters
+  set_fact:
+    subnet_ids: ""
+    sec_grp_param: ""
+
+- name: Check to see if ELB exists
+  command: "aws elbv2 describe-load-balancers --names {{ aws_elb.name }}"
+  failed_when: False
+  changed_when: False
+  register: elb_facts
+
+- name: Create Elastic Load Balancer
+  block:
+    - name: Get subnet IDs
+      include_tasks: subnet_get_id.yml
+      with_items: "{{ aws_elb.subnets | default(omit) }}"
+
+    - name: Create Application or Network ELB
+      block:
+        - name: Get Security Group {{ aws_elb.security_group }} facts
+          include_role:
+            name: "aws_manage_security_groups"
+            tasks_from: "get_security_group_facts"
+          vars:
+            sec_grp_tag: "{{ aws_elb.security_group }}"
+
+        - name: Set security group parameter
+          set_fact:
+            sec_grp_param: "--security-groups {{ sec_grp_facts.security_groups[0].group_id }}"
+          when: aws_elb.type == "application"
+
+        - name: Create ELB {{ aws_elb.name }}
+          command: "aws elbv2 create-load-balancer --name {{ aws_elb.name }} --scheme {{ aws_elb.scheme | default('internal') }} --type {{ aws_elb.type }} --subnets {{ subnet_ids[:-1] }} {{ sec_grp_param | default('') }} "
+          register: elb
+
+        - name: Get target group {{ aws_elb.target_group.name }} facts
+          command: "aws elbv2 describe-target-groups --names {{ aws_elb.target_group.name }}"
+          register: tgt_grp
+
+        - name: Attach listener for ELB {{ aws_elb.name }} (Network)
+          command: "aws elbv2 create-listener --load-balancer-arn {{ (elb.stdout | from_json ).LoadBalancers[0].LoadBalancerArn }} --protocol {{ aws_elb.target_group.protocol | upper }} --port {{ aws_elb.target_group.port }} --default-actions Type=forward,TargetGroupArn={{ (tgt_grp.stdout | from_json ).TargetGroups[0].TargetGroupArn }}"
+          when: aws_elb.type == "network"
+
+        - name: Attach listener for ELB {{ aws_elb.name }} (Application)
+          command: "aws elbv2 create-listener --load-balancer-arn {{ (elb.stdout | from_json ).LoadBalancers[0].LoadBalancerArn }} --protocol {{ aws_elb.target_group.protocol | upper }} --port {{ aws_elb.target_group.port }} --default-actions Type=forward,TargetGroupArn={{ (tgt_grp.stdout | from_json ).TargetGroups[0].TargetGroupArn }} --certificates CertificateArn={{ aws_elb.target_group.ssl_certificate_id }}"
+          when: aws_elb.type == "application"
+      when: aws_elb.type != "classic"
+
+    - name: Create Classic ELB
+      block:
+        - name: Create ELB {{ aws_elb.name }}
+          ec2_elb_lb:
+            aws_access_key: "{{ aws_access_key | default(omit) }}"
+            aws_secret_key: "{{ aws_secret_key | default(omit) }}"
+            region: "{{ aws_elb.region }}"
+            name: "{{ aws_elb.name }}"
+            cross_az_load_balancing: "yes"
+            security_group_names: "{{ aws_elb.security_group }}"
+            state: present
+            subnets: "{{ subnet_ids[:-1] }}"
+            listeners: "{{ aws_elb.listeners }}"
+            health_check: "{{ aws_elb.health_check }}"
+      when: aws_elb.type == "classic"
+  when: elb_facts.stdout == ""
+
+...
